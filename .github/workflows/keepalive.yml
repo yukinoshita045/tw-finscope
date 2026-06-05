@@ -1,0 +1,81 @@
+name: Keep Render Backend Awake
+
+# ─────────────────────────────────────────────────────────────
+# Render 免費方案在無請求 15 分鐘後會進入休眠（冷啟動要 30-60 秒）
+# 本 workflow 每 14 分鐘 ping 一次 /health，讓後端永遠保持清醒
+#
+# 【設定步驟 - 只需做一次】
+#   GitHub repo → Settings → Secrets and variables
+#   → Actions → Variables 分頁 → New repository variable
+#   → Name:  BACKEND_URL
+#   → Value: https://tw-finscope-api.onrender.com
+#
+# 【想暫停 keep-alive】
+#   Actions 頁面 → 左側選此 workflow → 右上角 ⋯ → Disable workflow
+# ─────────────────────────────────────────────────────────────
+
+on:
+  schedule:
+    # 每 14 分鐘（比 Render 的 15 分鐘睡眠閾值早一分鐘）
+    - cron: "*/14 * * * *"
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: "手動指定後端 URL（留空則用 BACKEND_URL variable）"
+        required: false
+        default: ""
+
+jobs:
+  ping:
+    name: Ping Backend /health
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Resolve target URL
+        id: resolve
+        run: |
+          # 優先順序: 手動輸入 > repo variable > 預設值（安全網）
+          MANUAL="${{ github.event.inputs.target_url }}"
+          VAR="${{ vars.BACKEND_URL }}"
+          FALLBACK="https://tw-finscope-api.onrender.com"
+
+          if [ -n "$MANUAL" ]; then
+            echo "url=$MANUAL" >> "$GITHUB_OUTPUT"
+            echo "source=manual_input" >> "$GITHUB_OUTPUT"
+          elif [ -n "$VAR" ]; then
+            echo "url=$VAR" >> "$GITHUB_OUTPUT"
+            echo "source=repo_variable" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=$FALLBACK" >> "$GITHUB_OUTPUT"
+            echo "source=hardcoded_fallback" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ping /health（最多重試 5 次，支援冷啟動最長 90 秒）
+        run: |
+          URL="${{ steps.resolve.outputs.url }}"
+          SRC="${{ steps.resolve.outputs.source }}"
+          echo "▶ URL source : $SRC"
+          echo "▶ Pinging   : $URL/health"
+          echo ""
+
+          RESPONSE=$(curl -fsS \
+            --retry 5 \
+            --retry-delay 15 \
+            --retry-all-errors \
+            --max-time 90 \
+            -w "\nHTTP %{http_code} | %{time_total}s" \
+            "$URL/health")
+
+          echo "$RESPONSE"
+          echo ""
+          echo "✅ Backend is awake and responding"
+
+      - name: Report status
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "🟢 $(date -u '+%Y-%m-%d %H:%M UTC') — backend alive"
+          else
+            echo "🔴 $(date -u '+%Y-%m-%d %H:%M UTC') — ping failed, Render may be down"
+          fi
