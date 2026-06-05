@@ -99,118 +99,128 @@
 
 \vspace{4pt}
 
-% ── 一、問題與動機 ────────────────────────────────────────────
-\section{問題與動機}
+% ── 一、做這個的原因 ──────────────────────────────────────────
+\section{做這個的原因}
 
-台灣公開資訊觀測站（MOPS）公開了所有上市公司財報，但資料分散在三種報表（資產負債
-/損益/現金流量），欄位以中文命名、日期為民國紀年、金額為字串並含全形破折號與括號
-負數，使一般使用者難以快速比較公司財務體質。\textbf{tw-finscope}
-自動拉取並標準化這三份報表、計算十項衍生指標、寫入資料庫，以互動儀表板呈現，
-讓使用者無需下載任何資料即可比較不同公司與產業的財務狀況。
+想查一家台灣上市公司的財務狀況，你大概會打開公開資訊觀測站（MOPS）——然後發現
+自己需要分別下載資產負債表、損益表、現金流量表三份 Excel，
+每份的日期都是民國年、欄位是中文科目名稱、負數用括號表示、千分位用全形逗號……
+光是把這三份整理成能比較的格式，就可能花掉一個下午。
 
-% ── 二、資料工程亮點 ──────────────────────────────────────────
-\section{資料工程亮點}
+\textbf{tw-finscope} 想解決的正是這件事。它把抓資料、清洗、計算指標的過程
+全部自動化，最後用一個互動儀表板呈現出來，讓你直接用瀏覽器比較不同公司和產業，
+不需要下載任何東西、不需要懂 Excel。
 
-\textbf{E \;抽取：}Python \texttt{httpx} 呼叫 MOPS 三個 endpoint（\texttt{t164sb03/04/05}），
-帶 browser-like headers 通過防爬機制；\texttt{tenacity} 三次指數回退重試，請求間 1.2 秒節流。
+% ── 二、資料處理流程 ──────────────────────────────────────────
+\section{資料處理流程（ETL）}
 
-\textbf{T \;轉換：}
-\begin{enumerate}[leftmargin=1.5em, itemsep=1pt, topsep=2pt]
-  \item 民國年↔西元年雙向轉換
-  \item 中文科目 → canonical key（\texttt{line\_items.py}，涵蓋 BS/IS/CF 共 60+ 對應）
-  \item 字串清洗——千分位逗號、全形空白、括號表負、\texttt{－} 表 NA
-  \item \textbf{計算 10 項衍生指標}——毛利率 / 營業利益率 / 淨利率、ROE、ROA、
-        流動比率、負債比率、營業 FCF、營收 YoY、淨利 YoY
-  \item 三個百分比指標自動偵測是否需要 $\times 100$ 標準化
-\end{enumerate}
+整個 pipeline 分三個階段，也是這個專案最核心的部分：
 
-\textbf{L \;載入：}\texttt{ON CONFLICT DO UPDATE} 對 \texttt{(company\_id, year, season, statement\_type,
-line\_item\_key)} 做冪等 upsert——任何時候重跑都不會產生重複列。
-Schema 分三層：\texttt{statements}（長表原始）→ \texttt{metrics}（寬表黃金）→ \texttt{etl\_runs}（可追溯）。
+\textbf{抽取（Extract）：}用 Python \texttt{httpx} 同時打 MOPS 的三個 API
+（\texttt{t164sb03/04/05}，分別對應資產負債/損益/現金流量表）。
+MOPS 有簡單的防爬措施，需要帶上 browser-like headers 才能正常取回資料；
+遇到網路不穩或被短暫擋掉時，會自動等幾秒後重試，最多三次。
 
-\textbf{規模：}預設 40 家公司 × 16 季 = 640 個期間 × 3 份報表 $\approx$ 2,500 筆指標列。
+\textbf{轉換（Transform）：}原始資料拿回來之後，有相當多事情要做——
+把民國年轉成西元年、把中文科目名稱對應到標準化的 key（光這個對應表就寫了 60 幾條）、
+清掉各種奇怪的格式，最後再\textbf{計算十項衍生指標}：
+毛利率、營業利益率、淨利率、ROE、ROA、流動比率、負債比率、營業 FCF、
+以及營收和淨利的同期年增率（YoY）。
+其中有三個指標會自動判斷是否需要乘以 100 做標準化，
+因為不同公司的財報有時候單位不一致。
 
-% ── 三、視覺化 ───────────────────────────────────────────────
-\section{視覺化}
+\textbf{載入（Load）：}寫入資料庫時用 \texttt{ON CONFLICT DO UPDATE}，
+確保不管重跑幾次都不會出現重複資料——這對定期自動排程來說很重要。
+Schema 設計成三層：最底層是原始長表 \texttt{statements}，
+中間是整理好的寬表 \texttt{metrics}，最上層是每次 ETL 執行記錄 \texttt{etl\_runs}，
+方便之後追蹤資料來源與更新歷史。
 
-四種互補的圖表類型，全程互動：
+資料規模大約是 40 家公司 $\times$ 16 季（2022--2025）$\times$ 3 份報表，
+最終產出約 2,500 筆指標資料。
 
-\begin{tabular}{@{}lp{12cm}@{}}
+% ── 三、儀表板與視覺化 ────────────────────────────────────────
+\section{儀表板與視覺化}
+
+儀表板設計的出發點是：讓沒有財務背景的人也能一眼看懂。
+除了圖表，還設計了一個「財務健康分數」，把五項比率壓縮成 0--100 的單一數字，
+並依區間顯示顏色（綠/藍/橘/紅），不需要自己去判斷各項數字代表什麼意思。
+
+\begin{tabular}{@{}lp{11.5cm}@{}}
 \toprule
-\textbf{圖表} & \textbf{說明} \\
+\textbf{圖表類型} & \textbf{想讓使用者看到什麼} \\
 \midrule
 損益趨勢線圖 &
-  多公司營收/毛利/淨利時序對比，可疊加同產業平均（虛線）做基準\\[3pt]
-利潤率分組長條圖 &
-  毛利率/營業利益率/淨利率三層分解，看「賺錢的品質」\\[3pt]
+  多家公司的營收、毛利、淨利放在同一張圖比較，
+  還可以疊加同產業平均值（虛線），一眼看出誰高於行業水準\\[4pt]
+利潤率長條圖 &
+  同時看毛利率、營業利益率、淨利率三層，
+  理解「這家公司賺的錢有多少是真的留下來的」\\[4pt]
 財務比率雷達圖 &
-  5 維（毛利率/營業利益率/淨利率/ROE/ROA）跨公司一眼比較體質\\[3pt]
+  五個維度（毛利率/營業利益率/淨利率/ROE/ROA）
+  的多邊形，跨公司比體質最直觀\\[4pt]
 產業排名表 &
-  9 種指標自由切換，可按產業過濾，顯示前 25 名\\
+  可切換 9 種指標、按產業過濾，顯示前 25 名，
+  方便快速找出某個產業裡的強者\\[4pt]
 \midrule
-\multicolumn{2}{@{}l}{\textbf{財務健康分數卡（複合創新指標）}} \\
+\multicolumn{2}{@{}l}{\textbf{財務健康分數卡（自訂複合指標）}}\\
 \multicolumn{2}{@{}p{14.5cm}}{
-  把 5 項比率加權成 0–100 單一分數：
-  毛利率（30\%）+ ROE（25\%）+ 流動比率（20\%）+ 低負債（15\%）+ 營收成長（10\%）；
-  分數依區間以顏色（綠/藍/橘/紅）即時呈現，讓非財務背景使用者立即理解。
+  加權計算：毛利率（30\%）+ ROE（25\%）+ 流動比率（20\%）+
+  低負債（15\%）+ 營收成長（10\%），
+  滿分 100 分，用顏色即時反映健康程度。
 }\\
 \bottomrule
 \end{tabular}
 
-% ── 四、資料更新機制 ──────────────────────────────────────────
-\section{資料更新機制}
+% ── 四、資料自動更新 ──────────────────────────────────────────
+\section{資料自動更新}
 
-\texttt{.github/workflows/etl.yml}：cron 每週一台北時間 10:00 自動執行 ETL，寫入 Postgres，
-同時支援 \texttt{workflow\_dispatch} 手動觸發（可選擇公司清單和年份）。
-\texttt{etl\_runs} 表記錄每次起訖、處理公司數、寫入列數、狀態與註記，
-構成完整 data lineage。儀表板右上角的「資料更新」徽章直接讀此表，
-使用者隨時知道資料新鮮度。
+儀表板的資料不是靜態的。專案裡設定了 GitHub Actions 排程，
+每週一早上 10 點（台北時間）會自動重新執行整個 ETL 流程、更新資料庫，
+你不需要做任何事。如果想手動觸發（例如剛上線、或者想補抓特定公司），
+也可以直接在 GitHub Actions 頁面按一下「Run workflow」，
+選好公司代號和年份就會跑起來。
 
-% ── 五、系統架構 ──────────────────────────────────────────────
-\section{系統架構}
+每次 ETL 執行完畢，結果都會寫進 \texttt{etl\_runs} 表，記錄開始時間、結束時間、
+處理了幾家公司、寫入了幾筆資料、成功還是失敗。
+儀表板右上角的「資料更新」小標籤就是直接讀這張表，
+讓使用者隨時知道現在看到的資料是幾時更新的。
+
+% ── 五、架構與技術選擇 ────────────────────────────────────────
+\section{架構與技術選擇}
 
 \begin{center}
-\small
-\begin{tabular}{@{}l@{\ $\rightarrow$\ }l@{\ $\rightarrow$\ }l@{\ $\rightarrow$\ }l@{}}
-GitHub Actions & Python ETL & PostgreSQL（Render） & FastAPI（Render）\\
-（每週/手動） & extract→transform→load &  & /api/companies …\\
- &  & & $\downarrow$ JSON + CORS \\
- &  & & React + Chart.js（Vercel）\\
-\end{tabular}
+\small\color{darkgray}
+GitHub Actions（每週自動 / 手動觸發）
+$\rightarrow$ Python ETL
+$\rightarrow$ PostgreSQL on Render
+$\rightarrow$ FastAPI on Render
+$\rightarrow$ React + Chart.js on Vercel
 \end{center}
 
-% ── 六、技術棧 ───────────────────────────────────────────────
-\section{技術棧}
+\vspace{2pt}
+前後端分開部署的好處是各自可以獨立擴充：
+後端 API 加新指標不影響前端，前端改 UI 也不需要動到 ETL 邏輯。
+本地開發時預設用 SQLite，不需要架 Postgres 也能立刻跑起來。
 
 \begin{tabular}{@{}ll@{}}
 \textbf{後端} & Python 3.12 · FastAPI · SQLAlchemy 2 · httpx · tenacity \\
 \textbf{前端} & React 18 · Vite · Chart.js + react-chartjs-2 \\
-\textbf{資料庫} & PostgreSQL 16（生產）/ SQLite（本地與離線 demo）\\
-\textbf{DevOps} & GitHub Actions · Render（API + DB）· Vercel（前端）\\
+\textbf{資料庫} & PostgreSQL 16（雲端）/ SQLite（本地開發）\\
+\textbf{部署} & GitHub Actions · Render（API + DB）· Vercel（前端）\\
 \end{tabular}
 
-% ── 七、連結 ─────────────────────────────────────────────────
+% ── 六、連結 ─────────────────────────────────────────────────
 \section{連結}
 
 \begin{tabular}{@{}ll@{}}
-\textbf{Demo 網址} &
+\textbf{Live Demo} &
   \href{\demourl}{\textcolor{urlcolor}{\demourl}} \\[4pt]
-\textbf{Backend API Docs} &
-  \href{https://tw-finscope-api.onrender.com/docs}{https://tw-finscope-api.onrender.com/docs} \\[4pt]
-\textbf{GitHub Repository} &
+\textbf{API 文件（Swagger）} &
+  \href{https://tw-finscope-api.onrender.com/docs}{\textcolor{urlcolor}{https://tw-finscope-api.onrender.com/docs}} \\[4pt]
+\textbf{GitHub 原始碼} &
   \href{\githuburl}{\textcolor{urlcolor}{\githuburl}} \\[4pt]
-\textbf{GitHub Actions} &
+\textbf{ETL 排程記錄} &
   \href{\githuburl/actions}{\textcolor{urlcolor}{\githuburl/actions}} \\
 \end{tabular}
-
-\vspace{6pt}
-\begin{tcolorbox}[
-  colback=accent!8, colframe=accent, arc=3pt,
-  boxrule=0.6pt, left=6pt, right=6pt, top=4pt, bottom=4pt
-]
-\small\color{darkgray}
-\textbf{注意：}Demo URL（\texttt{FILL\_IN\_AFTER\_DEPLOY}）為部署前佔位符。
-完成 Vercel 部署後，請替換第 42 行的 \texttt{\textbackslash demourl} 並重新編譯 PDF。
-\end{tcolorbox}
 
 \end{document}
