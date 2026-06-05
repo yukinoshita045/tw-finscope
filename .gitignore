@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 環境變數(含密碼,絕對不能上傳)
+.env
+.env.local
+.env.*.local
+
+# DB 檔案
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node / Vite
+node_modules/
+dist/
+.vite/
+*.log
+
+# Logs
+logs/
+*.log
+
+#personel documents
+*.docx
+*.pdf
+# 但允許 EXEC_SUMMARY.pdf & .tex 上傳（繳交用）
+!EXEC_SUMMARY.pdf
+!EXEC_SUMMARY.tex
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+
+# Vite timestamp
+frontend/vite.config.js.timestamp-*

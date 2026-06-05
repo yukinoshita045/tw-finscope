@@ -1,0 +1,216 @@
+% EXEC_SUMMARY.tex — tw-finscope 執行摘要
+% 編譯方式: xelatex EXEC_SUMMARY.tex
+%
+% 部署完成後，請將下方兩行的佔位符替換為實際網址，再重新編譯：
+%   \newcommand{\demourl}{https://FILL\_IN\_YOUR\_VERCEL\_URL.vercel.app}
+%   \newcommand{\githuburl}{https://github.com/yukinoshita045/tw-finscope}
+
+\documentclass[11pt, a4paper]{article}
+
+% ── 字型與 CJK ──────────────────────────────────────────────
+\usepackage{fontspec}
+\usepackage{xeCJK}
+\setCJKmainfont{PingFang SC}[
+  BoldFont   = PingFang SC Semibold,
+  ItalicFont = PingFang SC Light
+]
+\setCJKsansfont{Heiti SC}
+\setCJKmonofont{Heiti SC}
+\setmainfont{Times New Roman}[BoldFont=Times New Roman Bold]
+\setsansfont{Helvetica Neue}
+
+% ── 版面 ────────────────────────────────────────────────────
+\usepackage[a4paper, top=1.8cm, bottom=1.8cm, left=2.2cm, right=2.2cm]{geometry}
+\usepackage{parskip}
+\setlength{\parskip}{4pt}
+\setlength{\parindent}{0pt}
+
+% ── 套件 ────────────────────────────────────────────────────
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{graphicx}
+\usepackage{tcolorbox}
+\usepackage{microtype}
+\usepackage{amsmath}
+
+% ── 顏色定義 ─────────────────────────────────────────────────
+\definecolor{primary}{HTML}{1a56db}
+\definecolor{accent}{HTML}{0e9f6e}
+\definecolor{lightgray}{HTML}{f3f4f6}
+\definecolor{darkgray}{HTML}{374151}
+\definecolor{urlcolor}{HTML}{1e40af}
+
+% ── hyperref ─────────────────────────────────────────────────
+\hypersetup{
+  colorlinks = true,
+  urlcolor   = urlcolor,
+  linkcolor  = primary,
+  pdfauthor  = {Tommy Lin},
+  pdftitle   = {tw-finscope 執行摘要},
+}
+
+% ── 標題樣式 ──────────────────────────────────────────────────
+\titleformat{\section}
+  {\large\bfseries\color{primary}}
+  {\thesection.}{0.5em}{}[\titlerule]
+\titlespacing{\section}{0pt}{10pt}{4pt}
+
+\titleformat{\subsection}
+  {\normalsize\bfseries\color{darkgray}}
+  {\thesubsection}{0.5em}{}
+\titlespacing{\subsection}{0pt}{6pt}{2pt}
+
+% ── 頁首頁尾 ──────────────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancyhead[L]{\small\color{darkgray}\textbf{tw-finscope}\ \ 台灣上市公司財務健康儀表板}
+\fancyhead[R]{\small\color{darkgray}執行摘要 · 2026}
+\fancyfoot[C]{\small\thepage}
+
+% ── 網址命令（部署後替換）────────────────────────────────────
+\newcommand{\demourl}{https://FILL\_IN\_AFTER\_DEPLOY.vercel.app}
+\newcommand{\githuburl}{https://github.com/yukinoshita045/tw-finscope}
+
+% ══════════════════════════════════════════════════════════════
+\begin{document}
+% ══════════════════════════════════════════════════════════════
+
+% ── 標題區塊 ──────────────────────────────────────────────────
+\begin{tcolorbox}[
+  colback=primary!8, colframe=primary, arc=3pt,
+  boxrule=0.8pt, left=8pt, right=8pt, top=6pt, bottom=6pt
+]
+  {\LARGE\bfseries\color{primary} tw-finscope}\\[4pt]
+  {\large\color{darkgray} 台灣上市公司財務健康儀表板}\\[6pt]
+  \small
+  \textbf{Demo：}
+  \href{\demourl}{\textcolor{urlcolor}{\demourl}}
+  \quad\textbf{GitHub：}
+  \href{\githuburl}{\textcolor{urlcolor}{\githuburl}}
+\end{tcolorbox}
+
+\vspace{4pt}
+
+% ── 一、問題與動機 ────────────────────────────────────────────
+\section{問題與動機}
+
+台灣公開資訊觀測站（MOPS）公開了所有上市公司財報，但資料分散在三種報表（資產負債
+/損益/現金流量），欄位以中文命名、日期為民國紀年、金額為字串並含全形破折號與括號
+負數，使一般使用者難以快速比較公司財務體質。\textbf{tw-finscope}
+自動拉取並標準化這三份報表、計算十項衍生指標、寫入資料庫，以互動儀表板呈現，
+讓使用者無需下載任何資料即可比較不同公司與產業的財務狀況。
+
+% ── 二、資料工程亮點 ──────────────────────────────────────────
+\section{資料工程亮點}
+
+\textbf{E \;抽取：}Python \texttt{httpx} 呼叫 MOPS 三個 endpoint（\texttt{t164sb03/04/05}），
+帶 browser-like headers 通過防爬機制；\texttt{tenacity} 三次指數回退重試，請求間 1.2 秒節流。
+
+\textbf{T \;轉換：}
+\begin{enumerate}[leftmargin=1.5em, itemsep=1pt, topsep=2pt]
+  \item 民國年↔西元年雙向轉換
+  \item 中文科目 → canonical key（\texttt{line\_items.py}，涵蓋 BS/IS/CF 共 60+ 對應）
+  \item 字串清洗——千分位逗號、全形空白、括號表負、\texttt{－} 表 NA
+  \item \textbf{計算 10 項衍生指標}——毛利率 / 營業利益率 / 淨利率、ROE、ROA、
+        流動比率、負債比率、營業 FCF、營收 YoY、淨利 YoY
+  \item 三個百分比指標自動偵測是否需要 $\times 100$ 標準化
+\end{enumerate}
+
+\textbf{L \;載入：}\texttt{ON CONFLICT DO UPDATE} 對 \texttt{(company\_id, year, season, statement\_type,
+line\_item\_key)} 做冪等 upsert——任何時候重跑都不會產生重複列。
+Schema 分三層：\texttt{statements}（長表原始）→ \texttt{metrics}（寬表黃金）→ \texttt{etl\_runs}（可追溯）。
+
+\textbf{規模：}預設 40 家公司 × 16 季 = 640 個期間 × 3 份報表 $\approx$ 2,500 筆指標列。
+
+% ── 三、視覺化 ───────────────────────────────────────────────
+\section{視覺化}
+
+四種互補的圖表類型，全程互動：
+
+\begin{tabular}{@{}lp{12cm}@{}}
+\toprule
+\textbf{圖表} & \textbf{說明} \\
+\midrule
+損益趨勢線圖 &
+  多公司營收/毛利/淨利時序對比，可疊加同產業平均（虛線）做基準\\[3pt]
+利潤率分組長條圖 &
+  毛利率/營業利益率/淨利率三層分解，看「賺錢的品質」\\[3pt]
+財務比率雷達圖 &
+  5 維（毛利率/營業利益率/淨利率/ROE/ROA）跨公司一眼比較體質\\[3pt]
+產業排名表 &
+  9 種指標自由切換，可按產業過濾，顯示前 25 名\\
+\midrule
+\multicolumn{2}{@{}l}{\textbf{財務健康分數卡（複合創新指標）}} \\
+\multicolumn{2}{@{}p{14.5cm}}{
+  把 5 項比率加權成 0–100 單一分數：
+  毛利率（30\%）+ ROE（25\%）+ 流動比率（20\%）+ 低負債（15\%）+ 營收成長（10\%）；
+  分數依區間以顏色（綠/藍/橘/紅）即時呈現，讓非財務背景使用者立即理解。
+}\\
+\bottomrule
+\end{tabular}
+
+% ── 四、資料更新機制 ──────────────────────────────────────────
+\section{資料更新機制}
+
+\texttt{.github/workflows/etl.yml}：cron 每週一台北時間 10:00 自動執行 ETL，寫入 Postgres，
+同時支援 \texttt{workflow\_dispatch} 手動觸發（可選擇公司清單和年份）。
+\texttt{etl\_runs} 表記錄每次起訖、處理公司數、寫入列數、狀態與註記，
+構成完整 data lineage。儀表板右上角的「資料更新」徽章直接讀此表，
+使用者隨時知道資料新鮮度。
+
+% ── 五、系統架構 ──────────────────────────────────────────────
+\section{系統架構}
+
+\begin{center}
+\small
+\begin{tabular}{@{}l@{\ $\rightarrow$\ }l@{\ $\rightarrow$\ }l@{\ $\rightarrow$\ }l@{}}
+GitHub Actions & Python ETL & PostgreSQL（Render） & FastAPI（Render）\\
+（每週/手動） & extract→transform→load &  & /api/companies …\\
+ &  & & $\downarrow$ JSON + CORS \\
+ &  & & React + Chart.js（Vercel）\\
+\end{tabular}
+\end{center}
+
+% ── 六、技術棧 ───────────────────────────────────────────────
+\section{技術棧}
+
+\begin{tabular}{@{}ll@{}}
+\textbf{後端} & Python 3.12 · FastAPI · SQLAlchemy 2 · httpx · tenacity \\
+\textbf{前端} & React 18 · Vite · Chart.js + react-chartjs-2 \\
+\textbf{資料庫} & PostgreSQL 16（生產）/ SQLite（本地與離線 demo）\\
+\textbf{DevOps} & GitHub Actions · Render（API + DB）· Vercel（前端）\\
+\end{tabular}
+
+% ── 七、連結 ─────────────────────────────────────────────────
+\section{連結}
+
+\begin{tabular}{@{}ll@{}}
+\textbf{Demo 網址} &
+  \href{\demourl}{\textcolor{urlcolor}{\demourl}} \\[4pt]
+\textbf{Backend API Docs} &
+  \href{https://tw-finscope-api.onrender.com/docs}{https://tw-finscope-api.onrender.com/docs} \\[4pt]
+\textbf{GitHub Repository} &
+  \href{\githuburl}{\textcolor{urlcolor}{\githuburl}} \\[4pt]
+\textbf{GitHub Actions} &
+  \href{\githuburl/actions}{\textcolor{urlcolor}{\githuburl/actions}} \\
+\end{tabular}
+
+\vspace{6pt}
+\begin{tcolorbox}[
+  colback=accent!8, colframe=accent, arc=3pt,
+  boxrule=0.6pt, left=6pt, right=6pt, top=4pt, bottom=4pt
+]
+\small\color{darkgray}
+\textbf{注意：}Demo URL（\texttt{FILL\_IN\_AFTER\_DEPLOY}）為部署前佔位符。
+完成 Vercel 部署後，請替換第 42 行的 \texttt{\textbackslash demourl} 並重新編譯 PDF。
+\end{tcolorbox}
+
+\end{document}

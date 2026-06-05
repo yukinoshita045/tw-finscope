@@ -1,0 +1,66 @@
+name: Weekly ETL Refresh
+
+# 觸發條件:
+#   1. 每週一台北時間早上 10:00 (UTC 02:00) 自動跑
+#   2. GitHub Actions 介面手動觸發,可選擇要回填的範圍
+on:
+  schedule:
+    - cron: "0 2 * * 1"
+  workflow_dispatch:
+    inputs:
+      companies:
+        description: "公司代號(空格分隔,留空跑預設 40 家)"
+        required: false
+        default: ""
+      start_year:
+        description: "回填起始年(西元)"
+        required: false
+        default: "2022"
+      end_year:
+        description: "回填結束年(西元)"
+        required: false
+        default: "2025"
+
+jobs:
+  etl:
+    name: Run ETL Pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    # 若你的 repo 直接以 tw-finscope 為根,這行可移除
+    # 若 repo 根是 視覺化與現代資料科學/,改成 working-directory: tw-finscope
+    defaults:
+      run:
+        working-directory: .
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run ETL
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          COMPANIES="${{ github.event.inputs.companies }}"
+          START_YEAR="${{ github.event.inputs.start_year || '2022' }}"
+          END_YEAR="${{ github.event.inputs.end_year || '2025' }}"
+
+          if [ -n "$COMPANIES" ]; then
+            python -m pipeline.run_etl --companies $COMPANIES --start-year $START_YEAR --end-year $END_YEAR
+          else
+            python -m pipeline.run_etl --start-year $START_YEAR --end-year $END_YEAR
+          fi
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::ETL 執行失敗,請至 Actions logs 檢查"
