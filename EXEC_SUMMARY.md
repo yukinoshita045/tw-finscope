@@ -1,6 +1,7 @@
 # Taiwan Listed-Company Financial Health Dashboard
 
-**Project:** tw-finscope  ·  **Live:** `https://tw-finscope-xxx.vercel.app`  ·  **Repo:** `https://github.com/<you>/tw-finscope`
+**Project:** tw-finscope  ·  **Backend:** `https://tw-finscope-api.onrender.com`  ·  **Repo:** `https://github.com/yukinoshita045/tw-finscope`
+**Live demo:** `https://tw-finscope.vercel.app`
 
 ---
 
