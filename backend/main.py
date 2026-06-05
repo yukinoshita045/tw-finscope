@@ -2,17 +2,43 @@
 main.py — FastAPI 應用程式主入口
 """
 
+import logging
 import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.db import engine
-from backend.models import Base
+from backend.db import SessionLocal, engine
+from backend.models import Base, Company
 from backend.routers import companies, meta, metrics
+
+logger = logging.getLogger(__name__)
 
 # 啟動時自動建立所有 DB 表（若尚未存在）
 Base.metadata.create_all(bind=engine)
+
+
+def _auto_seed_if_empty() -> None:
+    """若資料庫沒有任何公司資料，自動灌入 demo 資料，確保 dashboard 一啟動就有東西可看。"""
+    db = SessionLocal()
+    try:
+        count = db.query(Company).count()
+    finally:
+        db.close()
+
+    if count == 0:
+        logger.info("[startup] Database is empty — running seed_demo …")
+        try:
+            from pipeline.seed_demo import seed  # 延遲 import，避免循環依賴
+            seed()
+            logger.info("[startup] seed_demo completed successfully")
+        except Exception as exc:
+            logger.warning("[startup] seed_demo failed (non-fatal): %s", exc)
+    else:
+        logger.info("[startup] Database already has %d companies, skipping seed", count)
+
+
+_auto_seed_if_empty()
 
 app = FastAPI(
     title="tw-finscope API",

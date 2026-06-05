@@ -1,0 +1,73 @@
+name: Seed Demo Data
+
+# ──────────────────────────────────────────────────────────────
+# 用途：一鍵把 8 家示範公司 × 16 季的合成財務資料寫入 Render Postgres
+# 只需要做一次，之後每週 ETL workflow 會自動更新真實 MOPS 資料
+#
+# 【執行前提】
+#   GitHub repo → Settings → Secrets → Actions → New repository secret
+#   Name:  DATABASE_URL
+#   Value: Render 後端的 External Database URL
+#          (Render → tw-finscope-db → Info → External Database URL)
+#
+# 【怎麼跑】
+#   Actions 分頁 → 左側選 "Seed Demo Data" → Run workflow → Run workflow
+# ──────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "輸入 YES 確認（資料已存在時會 upsert，不會重複）"
+        required: true
+        default: "YES"
+
+jobs:
+  seed:
+    name: Seed Demo Data into Render Postgres
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run seed_demo
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "YES" ]; then
+            echo "請在 confirm 輸入 YES 才會執行"
+            exit 1
+          fi
+          echo "▶ Starting seed_demo …"
+          python -m pipeline.seed_demo
+          echo "✅ Seed complete"
+
+      - name: Verify data
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python -c "
+          import os, sys
+          sys.path.insert(0, '.')
+          from backend.db import SessionLocal
+          from backend.models import Company, Metrics
+          db = SessionLocal()
+          companies = db.query(Company).count()
+          metrics   = db.query(Metrics).count()
+          db.close()
+          print(f'✅ companies={companies}, metrics rows={metrics}')
+          if companies == 0:
+              print('::error::No companies found after seed!')
+              sys.exit(1)
+          "
